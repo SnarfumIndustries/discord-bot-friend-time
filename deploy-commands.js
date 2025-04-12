@@ -1,25 +1,10 @@
 const { REST, Routes } = require("discord.js");
-const { clientId, guildId, token } = require("./config.json");
 const fs = require("node:fs");
 const path = require("node:path");
+const dotenv = require("dotenv");
+dotenv.config();
 
-// Define your slash commands as JSON objects
-const commands = [
-    {
-        name: "friendtime",
-        description: "Converts given time to each friend’s local time.",
-        options: [
-            {
-                name: "time",
-                type: 3, // STRING type
-                description: 'Time to convert, e.g. "4:00PM"',
-                required: true,
-            },
-        ],
-    },
-];
-
-
+const commands = [];
 // Grab all the command folders from the commands directory you created earlier
 const foldersPath = path.join(__dirname, "commands");
 const commandFolders = fs.readdirSync(foldersPath);
@@ -44,5 +29,27 @@ for (const folder of commandFolders) {
     }
 }
 
-// https://discord.com/api/oauth2/authorize?client_id=1360469833174487110&permissions=0&scope=bot%20applications.commands
+// Construct and prepare an instance of the REST module
+const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN);
 
+// and deploy your commands!
+(async () => {
+    try {
+        console.log(
+            `Started refreshing ${commands.length} application (/) commands.`
+        );
+
+        // The put method is used to fully refresh all commands in the guild with the current set
+        const data = await rest.put(
+            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            { body: commands }
+        );
+
+        console.log(
+            `Successfully reloaded ${data.length} application (/) commands.`
+        );
+    } catch (error) {
+        // And of course, make sure you catch and log any errors!
+        console.error(error);
+    }
+})();

@@ -1,62 +1,81 @@
 // Require dependencies
-const { Client, GatewayIntentBits } = require("discord.js");
-const moment = require("moment-timezone"); // Alternatively, use Luxon if preferred.
+const fs = require("node:fs");
+const path = require("node:path");
+const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
+const dotenv = require("dotenv");
+dotenv.config();
 
-// Create a new client instance with intent to fetch guild members.
-const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+// Create a new client instance
+const client = new Client({ intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+] });
+
+// Attach commands collection to the client
+client.commands = new Collection();
+
+// Grab all the command folders from the commands directory
+const foldersPath = path.join(__dirname, "commands");
+const commandFolders = fs.readdirSync(foldersPath);
+
+for (const folder of commandFolders) {
+    const commandsPath = path.join(foldersPath, folder);
+    const commandFiles = fs
+        .readdirSync(commandsPath)
+        .filter((file) => file.endsWith(".js"));
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+        const command = require(filePath);
+        // Set a new item in the Collection with the key as the command name and the value as the exported module
+        if ("data" in command && "execute" in command) {
+            client.commands.set(command.data.name, command);
+        } else {
+            console.log(
+                `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
+            );
+        }
+    }
+}
+
+// When the client is ready, run this code (only once).
+// The distinction between `client: Client<boolean>` and `readyClient: Client<true>` is important for TypeScript developers.
+// It makes some properties non-nullable.
+client.once(Events.ClientReady, readyClient => {
+	console.log(`Ready! Logged in as ${readyClient.user.tag}`);
 });
 
-// Map Discord role names to IANA timezone strings
-const timezoneMapping = {
-    EDT: "America/New_York",
-    GMT: "Europe/London",
-    // add additional mappings as needed
-};
-
-// Register command (once) via your preferred method or using discord.js’s REST API.
-// For this example, assume a slash command called 'friendtime' with a string option 'time'.
-
-client.once("ready", () => {
-    console.log(`Logged in as ${client.user.tag}`);
-});
-
-client.on("interactionCreate", async (interaction) => {
+// Log the commands to the console
+client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === "friendtime") {
-        // Retrieve the time argument (expected format "4:00PM")
-        const inputTimeStr = interaction.options.getString("time");
+    const command = interaction.client.commands.get(interaction.commandName);
 
-        // Parse the input time. The base date is today.
-        const baseTime = moment(inputTimeStr, "h:mmA");
-        if (!baseTime.isValid()) {
-            return interaction.reply("Invalid time format. Use e.g. 4:00PM");
+    if (!command) {
+        console.error(
+            `No command matching ${interaction.commandName} was found.`
+        );
+        return;
+    }
+
+    try {
+        // console.log(
+        //     `Executing command: ${interaction.commandName} by ${interaction.user.tag}`
+        // );
+        await command.execute(interaction);
+    } catch (error) {
+        console.error(error);
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({
+                content: "There was an error while executing this command!",
+                flags: MessageFlags.Ephemeral,
+            });
+        } else {
+            await interaction.reply({
+                content: "There was an error while executing this command!",
+                flags: MessageFlags.Ephemeral,
+            });
         }
-
-        // Refresh member list (if not already cached).
-        const guild = interaction.guild;
-        await guild.members.fetch();
-
-        // Build the output list
-        let replyStr = "Check out this time and date:\n";
-
-        guild.members.cache.forEach((member) => {
-            // Find a role that matches one of the timezone keys
-            const tzRole = member.roles.cache.find(
-                (role) => timezoneMapping[role.name]
-            );
-            if (tzRole) {
-                const tzValue = timezoneMapping[tzRole.name];
-                // Convert the time into the member's timezone and format it with abbreviation
-                const convertedTime = baseTime.tz(tzValue).format("h:mm A z");
-                replyStr += `- ${member.displayName} ${convertedTime}\n`;
-            }
-        });
-
-        await interaction.reply(replyStr);
     }
 });
 
-// Log into Discord with your bot's token (store in environment variable for security)
 client.login(process.env.DISCORD_BOT_TOKEN);
