@@ -1,106 +1,115 @@
 const { SlashCommandBuilder, inlineCode } = require("discord.js");
 const moment = require("moment-timezone");
 
-// Map Discord role names to IANA timezone strings
 const timezoneMapping = {
     // North America
-    EST: "America/New_York", // Eastern Standard/Daylight Time
-    EDT: "America/New_York",
-    CST: "America/Chicago", // Central Standard/Daylight Time
-    CDT: "America/Chicago",
-    MST: "America/Denver", // Mountain Standard/Daylight Time
-    MDT: "America/Denver",
-    PST: "America/Los_Angeles", // Pacific Standard/Daylight Time
-    PDT: "America/Los_Angeles",
-    AKST: "America/Anchorage", // Alaska Standard/Daylight Time
-    AKDT: "America/Anchorage",
-    HST: "Pacific/Honolulu", // Hawaii Standard Time (no DST)
+    "TZ:EST": "America/New_York",
+    "TZ:EDT": "America/New_York",
+    "TZ:CST": "America/Chicago",
+    "TZ:CDT": "America/Chicago",
+    "TZ:MST": "America/Denver",
+    "TZ:MDT": "America/Denver",
+    "TZ:PST": "America/Los_Angeles",
+    "TZ:PDT": "America/Los_Angeles",
+    "TZ:AKST": "America/Anchorage",
+    "TZ:AKDT": "America/Anchorage",
+    "TZ:HST": "Pacific/Honolulu",
 
     // Europe
-    GMT: "Europe/London", // Greenwich Mean Time / Western European Time
-    BST: "Europe/London", // British Summer Time
-    CET: "Europe/Paris", // Central European Time
-    CEST: "Europe/Paris", // Central European Summer Time
-    EET: "Europe/Athens", // Eastern European Time
-    EEST: "Europe/Athens", // Eastern European Summer Time
-    MSK: "Europe/Moscow", // Moscow Standard Time
+    "TZ:GMT": "Europe/London",
+    "TZ:BST": "Europe/London",
+    "TZ:CET": "Europe/Paris",
+    "TZ:CEST": "Europe/Paris",
+    "TZ:EET": "Europe/Athens",
+    "TZ:EEST": "Europe/Athens",
+    "TZ:MSK": "Europe/Moscow",
 
     // Asia
-    IST: "Asia/Kolkata", // Indian Standard Time
-    "CST-Asia": "Asia/Shanghai", // China Standard Time (using a disambiguated key)
-    JST: "Asia/Tokyo", // Japan Standard Time
-    KST: "Asia/Seoul", // Korea Standard Time
+    "TZ:IST": "Asia/Kolkata",
+    "TZ:CST-Asia": "Asia/Shanghai",
+    "TZ:JST": "Asia/Tokyo",
+    "TZ:KST": "Asia/Seoul",
 
     // Australia / New Zealand
-    AEST: "Australia/Sydney", // Australian Eastern Standard Time
-    AEDT: "Australia/Sydney", // Australian Eastern Daylight Time
-    ACST: "Australia/Adelaide", // Australian Central Standard Time
-    ACDT: "Australia/Adelaide", // Australian Central Daylight Time
-    AWST: "Australia/Perth", // Australian Western Standard Time
-    NZST: "Pacific/Auckland", // New Zealand Standard Time
-    NZDT: "Pacific/Auckland", // New Zealand Daylight Time
+    "TZ:AEST": "Australia/Sydney",
+    "TZ:AEDT": "Australia/Sydney",
+    "TZ:ACST": "Australia/Adelaide",
+    "TZ:ACDT": "Australia/Adelaide",
+    "TZ:AWST": "Australia/Perth",
+    "TZ:NZST": "Pacific/Auckland",
+    "TZ:NZDT": "Pacific/Auckland",
 
     // Africa
-    EAT: "Africa/Nairobi", // East Africa Time
-    CAT: "Africa/Harare", // Central Africa Time
-    SAST: "Africa/Johannesburg", // South Africa Standard Time
+    "TZ:EAT": "Africa/Nairobi",
+    "TZ:CAT": "Africa/Harare",
+    "TZ:SAST": "Africa/Johannesburg",
 
     // South America
-    ART: "America/Argentina/Buenos_Aires", // Argentina Time
-    BRT: "America/Sao_Paulo", // Brasilia Time
+    "TZ:ART": "America/Argentina/Buenos_Aires",
+    "TZ:BRT": "America/Sao_Paulo",
 };
+
+const exampleFormat = "e.g. 2PM, 4:00PM or 13, 14:00, 16:00";
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("friend-time")
         .setDescription("Get time for everyone else.")
-        // Added a required string option for time input
         .addStringOption((option) =>
             option
                 .setName("time")
-                .setDescription("Time input in the format e.g. 4:00PM")
+                .setDescription(exampleFormat)
                 .setRequired(true)
         ),
     async execute(interaction) {
-        // Retrieve the time argument (expected format "4:00PM")
         const inputTimeStr = interaction.options.getString("time");
 
-        // Parse the input time. The base date is today.
-        const baseTime = moment(inputTimeStr, "h:mmA");
+        let baseTime = moment(inputTimeStr, ["h:mmA", "hA", "h:mm A", "h A"]);
+        if (!baseTime.isValid()) {
+            baseTime = moment(inputTimeStr, ["HH:mm", "H:mm"]);
+        }
+
         if (!baseTime.isValid()) {
             console.error(
-                `You borked it → Invalid time format: ${inputTimeStr}. Expected format: h:mmA`
+                `You borked it → Invalid time format: ${inputTimeStr}. Expected format: ${exampleFormat}`
             );
             return interaction.reply(
-                "You borked it → Invalid time format. Use e.g. 4:00PM"
+                "You borked it → Invalid time format." + exampleFormat
             );
         }
 
-        // Refresh member list (if not already cached).
         const guild = interaction.guild;
         await guild.members.fetch();
-
-        // Build the output list
-        let replyStr = "converted times: \n";
 
         console.info(
             `User ${interaction.user.username} requested time for ${inputTimeStr}`
         );
 
+        const timeGroups = {};
+
         guild.members.cache.forEach((member) => {
-            // Find a role that matches one of the timezone keys
             const tzRole = member.roles.cache.find(
                 (role) => timezoneMapping[role.name]
             );
             if (tzRole) {
                 const tzValue = timezoneMapping[tzRole.name];
-                // Convert the time into the member's timezone and format it with abbreviation
-                const convertedTime = baseTime.tz(tzValue).format("h:mm A z");
-                replyStr += `→ ${member.displayName} ${inlineCode(
-                    convertedTime
-                )}\n`;
+                const convertedMoment = moment(baseTime).tz(tzValue);
+                const convertedTime = convertedMoment.format("h:mm A z");
+
+                if (!timeGroups[convertedTime]) {
+                    timeGroups[convertedTime] = [];
+                }
+                timeGroups[convertedTime].push(member.displayName);
             }
         });
+
+        let replyStr = `${interaction.user.username} checked time for ${inputTimeStr}:\n`;
+
+        for (const time in timeGroups) {
+            const users = timeGroups[time];
+            users.sort();
+            replyStr += `→ ${inlineCode(time)}: ${users.join(", ")}\n`;
+        }
 
         await interaction.reply(replyStr);
     },
