@@ -14,7 +14,6 @@ const timezoneMapping = {
     "TZ:AKST": "America/Anchorage",
     "TZ:AKDT": "America/Anchorage",
     "TZ:HST": "Pacific/Honolulu",
-
     // Europe
     "TZ:GMT": "Europe/London",
     "TZ:BST": "Europe/London",
@@ -23,13 +22,11 @@ const timezoneMapping = {
     "TZ:EET": "Europe/Athens",
     "TZ:EEST": "Europe/Athens",
     "TZ:MSK": "Europe/Moscow",
-
     // Asia
     "TZ:IST": "Asia/Kolkata",
     "TZ:CST-Asia": "Asia/Shanghai",
     "TZ:JST": "Asia/Tokyo",
     "TZ:KST": "Asia/Seoul",
-
     // Australia / New Zealand
     "TZ:AEST": "Australia/Sydney",
     "TZ:AEDT": "Australia/Sydney",
@@ -38,50 +35,52 @@ const timezoneMapping = {
     "TZ:AWST": "Australia/Perth",
     "TZ:NZST": "Pacific/Auckland",
     "TZ:NZDT": "Pacific/Auckland",
-
     // Africa
     "TZ:EAT": "Africa/Nairobi",
     "TZ:CAT": "Africa/Harare",
     "TZ:SAST": "Africa/Johannesburg",
-
     // South America
     "TZ:ART": "America/Argentina/Buenos_Aires",
     "TZ:BRT": "America/Sao_Paulo",
 };
 
+const twelveHourTimeFormat = "h:mm A z"; // 12-hour format with AM/PM and timezone
+const twentyFourHourTimeFormat = "H:mm z"; // 24-hour format for European zones
 const exampleFormat = "e.g. 2PM, 4:00PM or 13, 14:00, 16:00";
 
 // Helper to choose an emoji based on the hour (in the given timezone)
-function getEmojiForTime(timeStr, tz) {
-    // Create a moment from the time string using the stored timezone.
-    const m = moment.tz(timeStr, "h:mm A z", tz);
-    const hour = m.hour();
-    if (hour >= 5 && hour < 12) {
-        return "🌅"; // morning
-    } else if (hour >= 12 && hour < 17) {
-        return "☀️"; // afternoon
-    } else if (hour >= 17 && hour < 21) {
-        return "🌇"; // evening
-    } else {
+function getEmojiForTime(moment) {
+    const hour = moment.hour();
+    if (hour >= 7 && hour < 18) {
+        return "☀️"; // day
+    } else if (hour >= 18 && hour <= 24) {
         return "🌙"; // night
+    } else {
+        return "💤"; // sleep
     }
 }
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("friend-time")
-        .setDescription("Get time for everyone else.")
+        .setDescription("Get localized time for everyone.")
         .addStringOption((option) =>
             option
                 .setName("time")
                 .setDescription(exampleFormat)
-                .setRequired(true)
+                .setRequired(false)
         ),
     async execute(interaction) {
-        const inputTimeStr = interaction.options.getString("time");
+        let inputTimeStr = interaction.options.getString("time");
         console.info(
-            `User ${interaction.user.username} requested time for ${inputTimeStr}`
+            `User ${interaction.user.username} requested time for ${
+                inputTimeStr ?? "now"
+            }`
         );
+
+        if (!inputTimeStr) {
+            inputTimeStr = new Date().toLocaleTimeString();
+        }
 
         // Parse the input time (supports 12-hour and 24-hour formats)
         let baseTime = moment(inputTimeStr, ["h:mmA", "hA", "h:mm A", "h A"]);
@@ -104,6 +103,15 @@ module.exports = {
         // Also store the timezone used so that the moment can be recreated correctly.
         const timeGroups = {};
 
+        // Use format based on the user who interacted timezone
+        const interactionTzRole = interaction.member.roles.cache.find(
+            (role) => timezoneMapping[role.name]
+        );
+        const interactionTzValue = timezoneMapping[interactionTzRole.name];
+        const formatString = interactionTzValue.startsWith("Europe/")
+            ? twentyFourHourTimeFormat
+            : twelveHourTimeFormat;
+
         guild.members.cache.forEach((member) => {
             const tzRole = member.roles.cache.find(
                 (role) => timezoneMapping[role.name]
@@ -112,36 +120,31 @@ module.exports = {
                 const tzValue = timezoneMapping[tzRole.name];
                 const convertedMoment = moment(baseTime)
                     .tz(tzValue)
-                    .format("h:mm A z");
-
-                console.info(`User ${member.displayName} - ${convertedMoment}`);
+                    .format(formatString);
+                const emoji = getEmojiForTime(moment(baseTime).tz(tzValue));
 
                 if (!timeGroups[convertedMoment]) {
-                    timeGroups[convertedMoment] = { users: [], tz: tzValue };
+                    timeGroups[convertedMoment] = {
+                        users: [],
+                        tz: tzValue,
+                        emoji,
+                    };
                 }
                 timeGroups[convertedMoment].users.push(member.displayName);
             }
         });
 
-        console.info(`Time groups: ${JSON.stringify(timeGroups, null, 2)}`);
-
         // Sort timestamps in ascending order
         const sortedTimes = Object.keys(timeGroups).sort((a, b) =>
-            moment(a, "h:mm A z").diff(moment(b, "h:mm A z"))
-        );
-
-        console.info(
-            `Sorted timestamps: ${JSON.stringify(sortedTimes, null, 2)}`
+            moment(a, twelveHourTimeFormat).diff(moment(b, twelveHourTimeFormat))
         );
 
         let replyStr = `${interaction.user.username} checked time for ${inputTimeStr}:\n`;
 
         for (const time of sortedTimes) {
-            const { users, tz } = timeGroups[time];
+            const { users, tz, emoji } = timeGroups[time];
             users.sort(); // Sort users alphabetically
-            const emoji = getEmojiForTime(time, tz);
             replyStr += `${emoji} ${inlineCode(time)}: ${users.join(", ")}\n`;
-            // replyStr += `→ ${inlineCode(time)}: ${users.join(", ")}\n`;
         }
 
         await interaction.reply(replyStr);
