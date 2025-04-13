@@ -63,15 +63,18 @@ module.exports = {
         ),
     async execute(interaction) {
         const inputTimeStr = interaction.options.getString("time");
+        console.info(
+            `User ${interaction.user.username} requested time for ${inputTimeStr}`
+        );
 
+        // Parse the input time (supports 12-hour and 24-hour formats)
         let baseTime = moment(inputTimeStr, ["h:mmA", "hA", "h:mm A", "h A"]);
         if (!baseTime.isValid()) {
             baseTime = moment(inputTimeStr, ["HH:mm", "H:mm"]);
         }
-
         if (!baseTime.isValid()) {
             console.error(
-                `You borked it → Invalid time format: ${inputTimeStr}. Expected format: ${exampleFormat}`
+                `Invalid time format: ${inputTimeStr}. Expected format: ${exampleFormat}`
             );
             return interaction.reply(
                 "You borked it → Invalid time format." + exampleFormat
@@ -81,10 +84,8 @@ module.exports = {
         const guild = interaction.guild;
         await guild.members.fetch();
 
-        console.info(
-            `User ${interaction.user.username} requested time for ${inputTimeStr}`
-        );
-
+        // Use a numeric timestamp as key for easy chronological sorting.
+        // Also store the timezone used so that the moment can be recreated correctly.
         const timeGroups = {};
 
         guild.members.cache.forEach((member) => {
@@ -93,21 +94,37 @@ module.exports = {
             );
             if (tzRole) {
                 const tzValue = timezoneMapping[tzRole.name];
-                const convertedMoment = moment(baseTime).tz(tzValue);
-                const convertedTime = convertedMoment.format("h:mm A z");
+                const convertedMoment = moment(baseTime)
+                    .tz(tzValue)
+                    .format("h:mm A z");
 
-                if (!timeGroups[convertedTime]) {
-                    timeGroups[convertedTime] = [];
+                console.info(`User ${member.displayName} - ${convertedMoment}`);
+
+                if (!timeGroups[convertedMoment]) {
+                    timeGroups[convertedMoment] = { users: [], tz: tzValue };
                 }
-                timeGroups[convertedTime].push(member.displayName);
+                timeGroups[convertedMoment].users.push(member.displayName);
             }
         });
 
+        console.info(
+            `Time groups: ${JSON.stringify(timeGroups, null, 2)}`
+        );
+
+        // Sort timestamps in ascending order
+        const sortedTimes = Object.keys(timeGroups).sort((a, b) =>
+            moment(a, "h:mm A z").diff(moment(b, "h:mm A z"))
+        );
+
+        console.info(
+            `Sorted timestamps: ${JSON.stringify(sortedTimes, null, 2)}`
+        );
+
         let replyStr = `${interaction.user.username} checked time for ${inputTimeStr}:\n`;
 
-        for (const time in timeGroups) {
-            const users = timeGroups[time];
-            users.sort();
+        for (const time of sortedTimes) {
+            const { users, tz } = timeGroups[time];
+            users.sort();   // Sort users alphabetically
             replyStr += `→ ${inlineCode(time)}: ${users.join(", ")}\n`;
         }
 
