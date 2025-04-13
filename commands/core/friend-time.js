@@ -51,6 +51,22 @@ const timezoneMapping = {
 
 const exampleFormat = "e.g. 2PM, 4:00PM or 13, 14:00, 16:00";
 
+// Helper to choose an emoji based on the hour (in the given timezone)
+function getEmojiForTime(timeStr, tz) {
+    // Create a moment from the time string using the stored timezone.
+    const m = moment.tz(timeStr, "h:mm A z", tz);
+    const hour = m.hour();
+    if (hour >= 5 && hour < 12) {
+        return "🌅"; // morning
+    } else if (hour >= 12 && hour < 17) {
+        return "☀️"; // afternoon
+    } else if (hour >= 17 && hour < 21) {
+        return "🌇"; // evening
+    } else {
+        return "🌙"; // night
+    }
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("friend-time")
@@ -107,9 +123,7 @@ module.exports = {
             }
         });
 
-        console.info(
-            `Time groups: ${JSON.stringify(timeGroups, null, 2)}`
-        );
+        console.info(`Time groups: ${JSON.stringify(timeGroups, null, 2)}`);
 
         // Sort timestamps in ascending order
         const sortedTimes = Object.keys(timeGroups).sort((a, b) =>
@@ -124,8 +138,10 @@ module.exports = {
 
         for (const time of sortedTimes) {
             const { users, tz } = timeGroups[time];
-            users.sort();   // Sort users alphabetically
-            replyStr += `→ ${inlineCode(time)}: ${users.join(", ")}\n`;
+            users.sort(); // Sort users alphabetically
+            const emoji = getEmojiForTime(time, tz);
+            replyStr += `${emoji} ${inlineCode(time)}: ${users.join(", ")}\n`;
+            // replyStr += `→ ${inlineCode(time)}: ${users.join(", ")}\n`;
         }
 
         await interaction.reply(replyStr);
